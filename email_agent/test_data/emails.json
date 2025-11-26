@@ -1,0 +1,37 @@
+[
+  {
+    "id": "email_1",
+    "from": "alice@example.com",
+    "subject": "Team Meeting Tomorrow",
+    "date": "2025-11-25T10:00:00Z",
+    "body": "Hi team, just a reminder about our team meeting tomorrow at 2 PM. We'll discuss Q4 planning and the new project roadmap. Please review the deck I sent earlier. Thanks!"
+  },
+  {
+    "id": "email_2",
+    "from": "bob@example.com",
+    "subject": "Budget Review - Action Required",
+    "date": "2025-11-25T14:30:00Z",
+    "body": "Hi, I need your input on the Q4 budget proposal. Can we schedule a call this week? The deadline is Friday. Let me know your availability."
+  },
+  {
+    "id": "email_3",
+    "from": "carol@example.com",
+    "subject": "Project Alpha Update",
+    "date": "2025-11-26T09:15:00Z",
+    "body": "Quick update on Project Alpha: we've completed phase 1 testing and found 3 minor bugs. The team is working on fixes. Expected completion is next Monday. No blockers at the moment."
+  },
+  {
+    "id": "email_4",
+    "from": "dave@example.com",
+    "subject": "November 4th Meeting Confirmation",
+    "date": "2025-11-01T11:00:00Z",
+    "body": "Confirming our meeting on November 4th at 10:00 AM in Conference Room B. We'll discuss the new API endpoints and integration strategy. Duration: 1 hour. Attendees: you, me, and the engineering team."
+  },
+  {
+    "id": "email_5",
+    "from": "eve@example.com",
+    "subject": "Lunch Meeting Request",
+    "date": "2025-11-26T08:45:00Z",
+    "body": "Would you be available for lunch on Thursday to discuss the marketing campaign? I'm flexible on time, anywhere between 12-2 PM works for me."
+  }
+]
