@@ -1,13 +1,12 @@
 # Test Phi-4 Agent - Fake Data Testing
 
-A simplified test agent to verify Phi-4's function calling capabilities without requiring PostgreSQL, MCP servers, or email imports. Perfect for quick testing and debugging.
+A simplified test email agent to verify Phi-4's function calling capabilities. This agent should uses langchain-openai to be able to make an agent that should use the fake email and calendar data to answer the test questions.  
 
-## 🎯 Purpose
+## Purpose
 
 This test agent helps you:
 - **Verify Phi-4 function calling works** - See if tools are actually called vs. hallucinated
 - **Test middleware** - Ensure `PhiToolResultMiddleware` is working correctly  
-- **Quick iteration** - No database setup, no authentication, just run and test
 - **Understand expected behavior** - Compare Phi's output against expected results
 
 ## 📁 What's Included
@@ -19,14 +18,41 @@ test_data/
 └── calendar.json            # Fake calendar data (4 events)
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
+1. **Install Foundry Local:**
 
-1. **Foundry Local** running with Phi-4 model loaded
-2. **Python 3.11+** with `foundry-local-py` package
+   - **Windows**: Install Foundry Local for your architecture (x64 or arm64):
 
-### Run the Test
+     ```bash
+       winget install Microsoft.FoundryLocal
+     ```
+
+   - **MacOS**: Open a terminal and run the following command:
+    ```bash
+    brew install microsoft/foundrylocal/foundrylocal
+    ```
+  Alternatively, you can download the installers from the [releases page](https://github.com/microsoft/Foundry-Local/releases) and follow the on-screen installation instructions.
+
+> [!TIP]
+> For any issues, refer to the [Installation section](#installing) below.
+
+2. **Install Python packages**: Open a terminal and run the following command to run a model:
+
+   i. Create a virtual environment  
+   ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+    
+    ii. Install the required packages 
+    ```bash
+    pip install -r email_agent/test_requirements.txt
+    ```
+
+3. Run the Test Code
+
+This test agent checks if Phi-4 is using function calling as expected to answer the questions at the bottom of the `email_agent.test_phi4_agent.py` file.  
 
 ```bash
 # Make sure Foundry Local is running on http://127.0.0.1:63911
@@ -165,8 +191,6 @@ agent = create_agent(
 )
 ```
 
-**Note**: This test agent does NOT use `PhiJSONToToolCallMiddleware` because it's testing native function calling.
-
 ### 3. Run Test Questions
 ```python
 result = await graph.ainvoke({
@@ -179,98 +203,6 @@ result = await graph.ainvoke({
 - ✅ **Tool calls made** - Function calling works!
 - ❌ **No tool calls** - Phi-4 is hallucinating tool usage
 
-## 🐛 Troubleshooting
 
-### "ModuleNotFoundError: No module named 'foundry_local'"
-
-Install the Foundry Local Python package:
-```bash
-pip install foundry-local-py
-```
-
-### "Connection refused" or "Foundry endpoint error"
-
-Make sure Foundry Local is running:
-1. Open Foundry Local UI
-2. Load the Phi-4-generic-gpu model
-3. Verify it's accessible at http://127.0.0.1:63911
-
-Test with:
-```bash
-curl http://127.0.0.1:63911/foundry/list
-```
-
-### All Tests Show "❌ No tool calls"
-
-This means Phi-4's native function calling isn't working. This is expected! Phi-4 doesn't natively support the OpenAI function calling format, which is why the main agent (`msft_email_agent_local.py`) uses `PhiJSONToToolCallMiddleware` to convert JSON to tool calls.
-
-**To test the full middleware solution, use the main agent instead.**
-
-### Want to Test Custom Data?
-
-Edit `test_data/emails.json` or `test_data/calendar.json`:
-
-```json
-{
-  "id": "my_test_email",
-  "from": "test@example.com",
-  "subject": "My Test Subject",
-  "date": "2025-11-26T10:00:00Z",
-  "body": "This is test email content for testing searches."
-}
-```
-
-Then modify test questions in `test_phi4_agent.py`:
-
-```python
-test_cases = [
-    {
-        "question": "Find emails from test@example.com",
-        "expected": "Should find my test email"
-    }
-]
-```
-
-## 🔄 Differences from Main Agent
-
-| Feature | Test Agent | Main Agent (`msft_email_agent_local.py`) |
-|---------|-----------|------------------------------------------|
-| **Data Source** | Fake JSON files | Real Outlook emails via MCP |
-| **Database** | None | PostgreSQL + pgvector |
-| **Middleware** | `PhiToolResultMiddleware` only | Both middlewares |
-| **Tools** | 4 simple tools | 99+ MCP tools + custom tools |
-| **Setup Time** | 0 seconds | ~10 minutes |
-| **Purpose** | Test function calling | Production email agent |
-
-## 📚 When to Use This
-
-**Use Test Agent When:**
-- ✅ Testing if Phi-4 function calling works
-- ✅ Debugging middleware issues
-- ✅ Learning how the agent works
-- ✅ Quick experiments without setup
-
-**Use Main Agent When:**
-- ✅ Working with real emails
-- ✅ Need semantic search (vector similarity)
-- ✅ Integration with Microsoft 365
-- ✅ Production use case
-
-## 🎓 Learning Points
-
-1. **Function Calling Format**: Phi-4 needs help converting its JSON output to tool calls
-2. **Middleware Order Matters**: Result trimming happens BEFORE next model call
-3. **Temperature=0**: Critical for consistent, accurate responses
-4. **Tool Descriptions**: Clear descriptions help the model choose the right tool
-
-## 📖 Next Steps
-
-Once you verify function calling basics here:
-1. Review the [main README](../README.md) for full setup
-2. Check [ARCHITECTURE.md](../ARCHITECTURE.md) for system design
-3. Run the main agent with real emails
-4. Customize prompts and tools for your use case
-
----
 
 **Quick Test**: `python3 -m email_agent.test_phi4_agent` 🚀

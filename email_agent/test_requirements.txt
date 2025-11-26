@@ -1,0 +1,9 @@
+# Test requirements for test_phi4_agent.py
+
+# Core dependencies
+foundry-local
+langchain
+langchain-core
+langchain-openai
+langgraph
+typing-extensions
