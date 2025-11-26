@@ -1,0 +1,42 @@
+[
+  {
+    "id": "event_1",
+    "subject": "Team Standup",
+    "start": "2025-11-27T09:00:00Z",
+    "end": "2025-11-27T09:30:00Z",
+    "attendees": [
+      "alice@example.com",
+      "bob@example.com"
+    ]
+  },
+  {
+    "id": "event_2",
+    "subject": "Q4 Planning Meeting",
+    "start": "2025-11-27T14:00:00Z",
+    "end": "2025-11-27T15:00:00Z",
+    "attendees": [
+      "alice@example.com",
+      "team@example.com"
+    ]
+  },
+  {
+    "id": "event_3",
+    "subject": "API Endpoints Discussion",
+    "start": "2025-11-04T10:00:00Z",
+    "end": "2025-11-04T11:00:00Z",
+    "location": "Conference Room B",
+    "attendees": [
+      "dave@example.com",
+      "engineering@example.com"
+    ]
+  },
+  {
+    "id": "event_4",
+    "subject": "Budget Review Call",
+    "start": "2025-11-28T15:00:00Z",
+    "end": "2025-11-28T15:30:00Z",
+    "attendees": [
+      "bob@example.com"
+    ]
+  }
+]
