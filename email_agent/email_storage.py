@@ -110,10 +110,15 @@ class EmailStorage:
         token_provider = get_bearer_token_provider(
             DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
         )
+
+        # make sure using openai v1 endpoint
+        openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
+        if openai_endpoint and not openai_endpoint.endswith("/openai/v1"):
+            openai_endpoint = f"{openai_endpoint}/openai/v1"
         
         self.embeddings = OpenAIEmbeddings(
             model="text-embedding-ada-002",
-            base_url=os.environ.get("AZURE_OPENAI_ENDPOINT"),
+            base_url=openai_endpoint,
             api_key=token_provider
         )
     
@@ -130,7 +135,7 @@ class EmailStorage:
             logger.info(f"Connecting to local PostgreSQL at {pg_host}:{pg_port}/{pg_database}...")
             
             # Initialize connection pool with local config (no SSL required)
-            connection_pool = AzurePGConnectionPool(
+            self.connection_pool = AzurePGConnectionPool(
                 azure_conn_info=ConnectionInfo(
                     host=pg_host,
                     dbname=pg_database,
@@ -144,7 +149,7 @@ class EmailStorage:
                 configure=configure_connection,
             )
             
-            self._setup_vector_store(connection_pool)
+            self._setup_vector_store(self.connection_pool)
             logger.info(f"✓ Local PostgreSQL vector store initialized ({pg_host}:{pg_port}/{pg_database})")
         except Exception as e:
             error_msg = str(e)
@@ -336,37 +341,73 @@ class EmailStorage:
         for i in range(0, total, batch_size):
             batch = email_list[i:i + batch_size]
             
-            # Step 1: Check for duplicates and store files/blobs concurrently
+            # Step 1: Check for duplicates in vector store and prepare for storage
             file_storage_tasks = []
-            new_emails = []  # Emails that aren't duplicates
+            new_emails = []  # Emails that need vector indexing
+            file_only_emails = []  # Emails that need file storage only
             
             for email_data in batch:
                 email_id = hashlib.sha256(
                     f"{email_data.get('author','')}{email_data.get('subject','')}{email_data.get('body','')}".encode()
                 ).hexdigest()[:16]
                 
-                # Check if already exists
-                exists = False
+                # Check if already exists in vector store (primary check)
+                vector_exists = False
+                if self.vector_store and self.connection_pool:
+                    try:
+                        # Check database for this email_id using getconn/putconn
+                        conn = self.connection_pool.getconn()
+                        try:
+                            with conn.cursor() as cursor:
+                                cursor.execute(
+                                    "SELECT 1 FROM email_embeddings WHERE metadata->>'email_id' = %s LIMIT 1",
+                                    (email_id,)
+                                )
+                                vector_exists = cursor.fetchone() is not None
+                        finally:
+                            self.connection_pool.putconn(conn)
+                    except Exception as e:
+                        logger.warning(f"Error checking vector store for {email_id}: {e}")
+                        vector_exists = False
+                
+                # Check if file exists
+                file_exists = False
                 if self.storage_type == "local":
                     file_path = os.path.join(self.blob_storage_path, f"{email_id}.json")
-                    exists = os.path.exists(file_path)
+                    file_exists = os.path.exists(file_path)
                 elif self.blob_service:
                     try:
                         blob_client = self.blob_service.get_blob_client(self.blob_container, f"{email_id}.json")
-                        exists = await asyncio.to_thread(blob_client.exists)
+                        file_exists = await asyncio.to_thread(blob_client.exists)
                     except Exception:
                         pass
                 
-                if exists:
+                # Determine what needs to be done
+                if vector_exists and file_exists:
+                    # Complete duplicate - skip
                     logger.info(f"⏭️  Skipped duplicate email {email_id}")
                     stats["skipped"] += 1
-                else:
-                    new_emails.append((email_id, email_data))
+                elif vector_exists and not file_exists:
+                    # Has embeddings but missing file - store file only
+                    file_only_emails.append((email_id, email_data))
                     file_storage_tasks.append(self._store_file_async(email_id, email_data))
+                    logger.info(f"📄 Restoring missing file for email {email_id}")
+                elif not vector_exists:
+                    # Missing embeddings - needs both file and vector indexing
+                    new_emails.append((email_id, email_data))
+                    if not file_exists:
+                        file_storage_tasks.append(self._store_file_async(email_id, email_data))
+                        logger.info(f"📧 Storing new email {email_id} with embeddings")
+                    else:
+                        logger.info(f"🔄 Re-indexing email {email_id} (file exists, but no embeddings)")
             
             # Store all files/blobs concurrently
             if file_storage_tasks:
                 await asyncio.gather(*file_storage_tasks, return_exceptions=True)
+            
+            # Count file-only storage as successful
+            if file_only_emails:
+                stats["stored"] += len(file_only_emails)
             
             # Step 2: Batch index in vector store (much faster than one-by-one)
             if new_emails and self.vector_store:
@@ -376,7 +417,8 @@ class EmailStorage:
                 except Exception as e:
                     logger.error(f"Batch vector indexing failed: {e}")
                     stats["failed"] += len(new_emails)
-            elif new_emails:
+            elif new_emails and not self.vector_store:
+                # No vector store available but files were stored
                 stats["stored"] += len(new_emails)
             
             # Update progress
