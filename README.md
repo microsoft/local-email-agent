@@ -5,6 +5,7 @@ An intelligent email assistant powered by Microsoft's Phi-4 local model, featuri
 ## 🎯 Overview
 
 This project demonstrates how to build a production-ready email agent using:
+
 - **Phi-4** via Foundry Local (runs on your machine)
 - **PostgreSQL + pgvector** for semantic email search
 - **Microsoft 365 MCP Server** for email/calendar operations
@@ -42,12 +43,30 @@ msft/
 
 1. **Python 3.11+**
 2. **Docker** (for PostgreSQL)
-3. **Foundry Local** - 
+3. **Foundry Local**
 4. **Node.js** (for MCP server)
 
 ### Setup
 
-**1. Install Dependencies**
+**1. Install Foundry Local:**
+
+Windows: Install Foundry Local for your architecture (x64 or arm64):
+
+```bash
+  winget install Microsoft.FoundryLocal
+```
+
+MacOS: Open a terminal and run the following command:
+
+```bash
+brew install microsoft/foundrylocal/foundrylocal
+```
+
+Alternatively, you can download the installers from the releases page and follow the on-screen installation instructions.
+
+> Note: Foundry Local doesn't currently support Linux
+
+**2. Install Dependencies:**
 
 ```bash
 # Create virtual environment
@@ -59,9 +78,12 @@ pip install -r email_agent/requirements.txt
 
 # Install Microsoft 365 MCP Server
 npm install -g @softeria/ms-365-mcp-server
+
+# login to the m365 account you want to use
+npx @softeria/ms-365-mcp-server --login
 ```
 
-**2. Start PostgreSQL + pgvector**
+**3. Start PostgreSQL + pgvector:**
 
 ```bash
 # Start Docker container
@@ -72,23 +94,42 @@ docker compose up -d
 # Enable pgvector extension
 docker exec -it email-postgres psql -U postgres -d emaildb -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Verify
+# Verify (exit by typing 'wq')
 docker exec -it email-postgres psql -U postgres -d emaildb -c "\dx"
 ```
 
-**3. Configure Environment**
+If successful, the command to verify displays a list of PostgreSQL extensions installed in the emaildb database. The output should look something like this:
 
 ```bash
-# Copy template
-cp email_agent/.env.local.example email_agent/.env
-
-# Edit .env and add your Azure OpenAI credentials for embeddings:
-# - AZURE_OPENAI_ENDPOINT
-# - AZURE_OPENAI_API_KEY  
-# - AZURE_OPENAI_EMBEDDING_DEPLOYMENT (e.g., text-embedding-ada-002)
+  Name   | Version |   Schema   |                        Description
+---------+---------+------------+-----------------------------------------------------------
+ plpgsql | 1.0     | pg_catalog | PL/pgSQL procedural language
+ vector  | 0.5.0   | public     | vector data type and ivfflat and hnsw access methods
+(2 rows)
 ```
 
-**4. Start Foundry Local**
+The key extension you're looking for is vector - this is the pgvector extension that enables:
+
+- The vector data type for storing embeddings
+- Vector similarity search operations (cosine distance, L2 distance, etc.)
+- HNSW and IVFFlat indexing for fast nearest neighbor searches
+
+**4. Configure Environment:**
+
+```bash
+# Copy local env template
+cp email_agent/.env.local.example email_agent/.env
+```
+
+Edit the new `.env` in the [email_agent](/email_agent/) folder and add your Azure OpenAI credentials, specifically your:
+
+```bash
+- AZURE_OPENAI_ENDPOINT #(this project uses the openai v1 api)
+- AZURE_OPENAI_API_KEY  #(We encourage you to use Entra ID)
+- AZURE_OPENAI_EMBEDDING_DEPLOYMENT (e.g., text-embedding-ada-002)
+```
+
+**4. Start Foundry Local:**
 
 ```bash
 # In Foundry Local UI, load the Phi-4-generic-gpu model
@@ -105,7 +146,7 @@ python3 -m email_agent.import_emails --months 3 --batch-size 50 --storage local
 python3 -m email_agent.view_emails_in_vector_store
 ```
 
-**6. Run the Agent**
+**6. Run the Agent:**
 
 ```bash
 python3 -m email_agent.msft_email_agent_local
@@ -128,12 +169,14 @@ See [Test Agent README](email_agent/TEST_AGENT_README.md) for details.
 
 Phi-4 requires custom middleware to enable proper tool calling:
 
-**1. PhiJSONToToolCallMiddleware**
+**1. PhiJSONToToolCallMiddleware:**
+
 - Converts Phi's JSON output to LangChain tool calls
 - Pattern: `{"name": "tool_name", "args": {...}}`
 - Runs after model generation
 
-**2. PhiToolResultMiddleware**
+**2. PhiToolResultMiddleware:**
+
 - Trims long tool results (>1000 chars)
 - Adds synthesis reminders to prevent empty responses
 - Runs before next model call
@@ -194,28 +237,6 @@ results = await email_storage.search(query="meeting November 4", top_k=5)
 | `view_emails_in_vector_store.py` | Verify imported emails and embeddings |
 | `test_phi4_agent.py` | Standalone test agent with fake data |
 
-## 📝 Environment Variables
-
-```bash
-# Storage Mode
-STORAGE_MODE=local  # or 'cloud'
-
-# Local PostgreSQL
-LOCAL_PGHOST=localhost
-LOCAL_PGPORT=5432
-LOCAL_PGDATABASE=emaildb
-LOCAL_PGUSER=postgres
-LOCAL_PGPASSWORD=P@ssw0rd!
-
-# Azure OpenAI (for embeddings)
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-key
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
-AZURE_OPENAI_API_VERSION=2024-02-15-preview
-
-# Local Storage Path
-LOCAL_BLOB_PATH=./data/local_email_storage
-```
 
 ## 🐛 Troubleshooting
 
@@ -243,6 +264,7 @@ curl http://127.0.0.1:63911/foundry/list
 ### No Tool Calls Made
 
 If Phi-4 describes tool calls instead of making them:
+
 - Ensure middleware is enabled (check logs for "✅ Converted JSON to tool call")
 - Verify LLM is using `temperature=0.0`
 - Check system prompt includes tool calling instructions
@@ -250,6 +272,7 @@ If Phi-4 describes tool calls instead of making them:
 ### Import Errors
 
 If `import_emails.py` fails:
+
 1. Verify MCP server is installed: `npx @softeria/ms-365-mcp-server --version`
 2. Authenticate with Microsoft 365: The MCP server will prompt for login
 3. Check `.env` has correct Azure OpenAI credentials
@@ -262,21 +285,4 @@ If `import_emails.py` fails:
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
 - [Microsoft 365 MCP Server](https://github.com/softeria-cloud/ms-365-mcp-server)
 
-## 🤝 Contributing
-
-This is a reference implementation demonstrating:
-- Local LLM integration (Phi-4)
-- Custom middleware for tool calling
-- Vector-based email search
-- MCP protocol usage
-- LangGraph agent patterns
-
-Feel free to adapt for your use case!
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
 ---
-
-**Built with** 🤖 Microsoft Phi-4 • 🔧 Foundry Local • 📧 MCP • 🔍 pgvector • 🕸️ LangGraph
