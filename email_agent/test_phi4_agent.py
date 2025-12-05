@@ -14,11 +14,12 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
+from xml.parsers.expat import model
 
 from foundry_local import FoundryLocalManager
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -101,15 +102,7 @@ def load_fake_data():
 # Tool definitions
 @tool
 def search_emails(query: str, max_results: int = 5) -> str:
-    """Search emails for a specific query string.
-    
-    Args:
-        query: Search query to find in emails
-        max_results: Maximum number of results to return (default: 5)
-    
-    Returns:
-        Formatted string with matching emails
-    """
+    """Search emails for a specific query string. Args: query: Search query to find in emails. max_results: Maximum number of results to return (default: 5) Returns: Formatted string with matching emails"""
     logger.info(f"🔍 Searching emails for: {query}")
     
     emails_file = FAKE_DATA_DIR / "emails.json"
@@ -147,15 +140,8 @@ def search_emails(query: str, max_results: int = 5) -> str:
 
 
 @tool
-def get_latest_emails(count: int = 5) -> str:
-    """Get the most recent emails.
-    
-    Args:
-        count: Number of recent emails to retrieve (default: 5)
-    
-    Returns:
-        Formatted string with recent emails
-    """
+def get_latest_emails(count: int) -> str:
+    """Get the most recent emails. Args: count: Number of recent emails to retrieve (default: 5). Returns: Formatted string with recent emails"""
     logger.info(f"📧 Getting {count} latest emails")
     
     emails_file = FAKE_DATA_DIR / "emails.json"
@@ -180,16 +166,8 @@ def get_latest_emails(count: int = 5) -> str:
 
 
 @tool
-def search_calendar(query: str = None, date: str = None) -> str:
-    """Search calendar events by query or date.
-    
-    Args:
-        query: Optional search query for event subject
-        date: Optional date in YYYY-MM-DD format to filter events
-    
-    Returns:
-        Formatted string with matching calendar events
-    """
+def search_calendar(query: str, date: str = None) -> str:
+    """Search calendar events by query or date. Args: query: Optional search query for event subject. date: Optional date in YYYY-MM-DD format to filter events. Returns: Formatted string with matching calendar events"""
     logger.info(f"📅 Searching calendar - query: {query}, date: {date}")
     
     calendar_file = FAKE_DATA_DIR / "calendar.json"
@@ -228,15 +206,8 @@ def search_calendar(query: str = None, date: str = None) -> str:
 
 
 @tool
-def get_upcoming_events(days: int = 7) -> str:
-    """Get upcoming calendar events for the next N days.
-    
-    Args:
-        days: Number of days to look ahead (default: 7)
-    
-    Returns:
-        Formatted string with upcoming events
-    """
+def get_upcoming_events(days: int) -> str:
+    """Get upcoming calendar events for the next N days. Args: days: Number of days to look ahead (default: 7). Returns: Formatted string with upcoming events"""
     logger.info(f"📆 Getting events for next {days} days")
     
     calendar_file = FAKE_DATA_DIR / "calendar.json"
@@ -263,17 +234,20 @@ def get_upcoming_events(days: int = 7) -> str:
 
 
 # Initialize Foundry Local LLM
-logger.info("🚀 Initializing Foundry Local with Phi-4-generic-gpu...")
-foundry_manager = FoundryLocalManager("Phi-4-generic-gpu")
+model_name = "Phi-4-mini-instruct-generic-gpu:5"
+logger.info(f"🚀 Initializing Foundry Local with {model_name}...")
+foundry_manager = FoundryLocalManager(model_name)
 logger.info(f"✅ Foundry endpoint: {foundry_manager.endpoint}")
 
 llm = ChatOpenAI(
     base_url=foundry_manager.endpoint,
     api_key=foundry_manager.api_key,
-    model="Phi-4-generic-gpu",
+    model=model_name,
     temperature=0.0
 )
 
+# System prompt
+SYSTEM_PROMPT = f"""You are a helpful email and calendar assistant. Current date: {CURRENT_DATE} You have access to the following tools: - search_emails: Search for emails containing specific keywords  - get_latest_emails: Get the most recent emails - search_calendar: Search calendar events by query or date - get_upcoming_events: Get upcoming calendar events. When the user asks a question: 1. Use the appropriate tools to gather information. 2. Synthesize a clear, specific answer based on the tool results. 3. Include relevant details like dates, times, subjects, and people. Be concise but informative."""
 
 async def create_test_agent():
     """Create a simple test agent with fake data tools."""
@@ -289,55 +263,47 @@ async def create_test_agent():
         get_upcoming_events
     ]
     
-    # System prompt
-    system_prompt = f"""You are a helpful email and calendar assistant.
-
-Current date: {CURRENT_DATE}
-
-You have access to the following tools:
-- search_emails: Search for emails containing specific keywords
-- get_latest_emails: Get the most recent emails
-- search_calendar: Search calendar events by query or date
-- get_upcoming_events: Get upcoming calendar events
-
-When the user asks a question:
-1. Use the appropriate tools to gather information
-2. Synthesize a clear, specific answer based on the tool results
-3. Include relevant details like dates, times, subjects, and people
-
-Be concise but informative."""
-
-    # Create agent with middleware
-    agent = create_agent(
-        model=llm,
-        tools=tools,
-        system_prompt=system_prompt,
-        middleware=[PhiToolResultMiddleware()]
-    )
+    # Create agent WITHOUT create_agent wrapper - use raw LLM
+    llm_with_tools = llm.bind_tools(tools, tool_choice="required")
     
     # Create workflow
+    def call_model(state: TestState):
+        """Call the LLM with tools."""
+        messages = state.get("messages", [])
+        response = llm_with_tools.invoke(messages)
+        return {"messages": messages + [response]}
+    
     def should_continue(state: TestState):
         """Determine if agent should continue or end."""
         messages = state.get("messages", [])
-        if not messages:
-            return END
         
+        if not messages:
+            logger.info("🔍 No messages - returning END")
+            return END
+                
         last_message = messages[-1]
+        logger.info(f"🔍 Last message type: {type(last_message)}")
         
         # Check if last message has tool calls
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            logger.info(f"✅ Tool calls made ({len(last_message.tool_calls)}) - continuing")
+        has_tool_calls = hasattr(last_message, "tool_calls") and last_message.tool_calls
+        logger.info(f"🔍 Has tool_calls attribute: {hasattr(last_message, 'tool_calls')}")
+        if hasattr(last_message, "tool_calls"):
+            logger.info(f"🔍 tool_calls value: {last_message.tool_calls}")
+        logger.info(f"🔍 Has tool calls: {has_tool_calls}")
+        
+        if has_tool_calls:
+            logger.info(f"✅ Tool calls made ({len(last_message.tool_calls)}) - continuing to tools")
             return "tools"
         
         logger.info("❌ No tool calls - ending")
         return END
     
     workflow = StateGraph(TestState)
-    workflow.add_node("agent", agent)
+    workflow.add_node("agent", call_model)
     workflow.add_node("tools", ToolNode(tools))
     workflow.add_edge(START, "agent")
     workflow.add_conditional_edges("agent", should_continue, ["tools", END])
-    workflow.add_edge("tools", "agent")
+    workflow.add_edge("tools", END)  # End after tools instead of returning to agent
     
     # Compile graph
     checkpointer = MemorySaver()
@@ -389,7 +355,10 @@ async def test_agent():
         
         result = await graph.ainvoke(
             {
-                "messages": [HumanMessage(content=question)],
+                "messages": [
+                    SystemMessage(content=SYSTEM_PROMPT),
+                    HumanMessage(content=question)
+                ],
                 "question": question
             },
             config={"configurable": {"thread_id": f"test-{i}"}}
