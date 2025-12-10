@@ -2,6 +2,8 @@
 
 An intelligent email assistant powered by Microsoft's Phi-4 local model, featuring a modern web UI, human-in-the-loop approvals, calendar integration, and Microsoft 365 connectivity via MCP (Model Context Protocol).
 
+![email agent image](./images/email_agent_image.png)
+
 ## Overview
 
 This project demonstrates how to build a local email agent using:
@@ -12,6 +14,9 @@ This project demonstrates how to build a local email agent using:
 - **LangGraph** for agent orchestration with Human-in-the-Loop (HITL) approvals
 - **FastAPI Backend** with SSE streaming for real-time updates
 - **Next.js Frontend** - Agent Inbox UI for managing conversations and approvals
+
+
+![architecture](./images/SLMs,%20MCP%20and%20Context%20Engineering.png)
 
 ## 🌱 Quick Start
 
