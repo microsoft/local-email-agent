@@ -1,4 +1,4 @@
-# Local Email Agent with Phi-4
+# Local Email Agent
 
 An intelligent email assistant powered by Microsoft's Phi-4 local model, featuring a modern web UI, human-in-the-loop approvals, calendar integration, and Microsoft 365 connectivity via MCP (Model Context Protocol).
 
@@ -8,15 +8,12 @@ An intelligent email assistant powered by Microsoft's Phi-4 local model, featuri
 
 This project demonstrates how to build a local email agent using:
 
-- **Phi-4** via Foundry Local (runs entirely on your machine)
+- **Foundry Local** (runs entirely on your machine), this project shows phi-4 but you can use any model you like
 - **PostgreSQL + pgvector** for semantic email search
 - **Microsoft 365 MCP Server** for email/calendar operations
 - **LangGraph** for agent orchestration with Human-in-the-Loop (HITL) approvals
 - **FastAPI Backend** with SSE streaming for real-time updates
 - **Next.js Frontend** - Agent Inbox UI for managing conversations and approvals
-
-
-![architecture](./images/SLMs,%20MCP%20and%20Context%20Engineering.png)
 
 ## 🌱 Quick Start
 
@@ -151,46 +148,15 @@ The agent requires human approval for sensitive actions:
 
 ## 🏗️ Architecture
 
-### Project Structure
+![architecture](./images/SLMs,%20MCP%20and%20Context%20Engineering.png)
 
-```bash
-local-email-agent/
-├── email_agent/
-│   ├── agent_graph.py       # LangGraph agent with sub-agent architecture
-│   ├── api.py               # FastAPI backend with SSE streaming
-│   ├── foundry_service.py   # Foundry Local LLM connection
-│   ├── hitl_schemas.py      # Human-in-the-loop interrupt schemas
-│   ├── email_storage.py     # PostgreSQL + pgvector integration
-│   ├── import_emails.py     # Import emails from Outlook via MCP
-│   ├── prompts.py           # System prompts
-│   ├── schemas.py           # Pydantic schemas
-│   ├── utils.py             # Helper functions
-│   ├── tools/               # Tool definitions
-│   │   └── default/
-│   │       ├── email_tools.py
-│   │       ├── calendar_tools.py
-│   │       └── prompt_templates.py
-│   ├── frontend/            # Next.js Agent Inbox UI
-│   │   ├── src/
-│   │   │   ├── app/         # Next.js pages
-│   │   │   ├── components/  # React components
-│   │   │   └── lib/         # API client, types, streaming manager
-│   │   └── package.json
-│   └── test_data/           # Sample data for testing
-│       ├── emails.json
-│       └── calendar.json
-├── data/
-│   └── local_email_storage/ # Imported email blobs (gitignored)
-├── docker-compose.yml       # PostgreSQL + pgvector setup
-├── ARCHITECTURE.md          # System design & diagrams
-└── README.md
 ```
 
 ### Sub-Agent Architecture
 
 The agent uses a supervisor pattern with specialized sub-agents:
 
-```
+```markdown
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Supervisor Agent                          │
 │   (Routes requests to appropriate sub-agent or tool)            │
@@ -222,7 +188,7 @@ Since Phi-4 doesn't have native tool calling, this project uses LangChain's `wit
 
 ### Agent Flow
 
-1. User asks: *"Send an email to john@example.com about the meeting"*
+1. User asks: *"Send an email to marlene@example.com about the meeting"*
 2. **Supervisor** selects the `manage_email` sub-agent
 3. **Email Sub-Agent** determines to use `send-mail` MCP tool
 4. **HITL Interrupt** - User sees the email and can approve/edit/reject
