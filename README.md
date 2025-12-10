@@ -148,15 +148,11 @@ The agent requires human approval for sensitive actions:
 
 ## 🏗️ Architecture
 
-![architecture](./images/SLMs,%20MCP%20and%20Context%20Engineering.png)
-
-```
-
 ### Sub-Agent Architecture
 
 The agent uses a supervisor pattern with specialized sub-agents:
 
-```markdown
+```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Supervisor Agent                          │
 │   (Routes requests to appropriate sub-agent or tool)            │
