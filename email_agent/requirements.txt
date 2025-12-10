@@ -12,7 +12,7 @@ azure-identity>=1.15.0
 langchain-azure-ai>=1.0.0
 langchain-azure-storage>=1.0.0
 foundry-local-sdk
-langchain-azure-postgresql>=1.0.0 #update to support v1
+langchain-azure-postgresql>=1.0.0 
 
 # Database
 psycopg[binary]>=3.1.0
@@ -21,6 +21,11 @@ pgvector>=0.2.0
 # MCP (Model Context Protocol)
 # Note: Install @softeria/ms-365-mcp-server via npm
 # npm install -g @softeria/ms-365-mcp-server
+
+# Web API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
 
 # Utilities
 python-dotenv
