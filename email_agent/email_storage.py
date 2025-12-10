@@ -106,24 +106,54 @@ class EmailStorage:
                 logger.warning(f"Blob storage disabled: {e}")
     
     def _init_embeddings(self):
-        """Initialize embeddings (works for both local and cloud)."""
-        token_provider = get_bearer_token_provider(
-            DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-        )
-
-        # make sure using openai v1 endpoint
-        openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
-        if openai_endpoint and not openai_endpoint.endswith("/openai/v1"):
-            openai_endpoint = f"{openai_endpoint}/openai/v1"
+        """Initialize embeddings.
         
-        self.embeddings = OpenAIEmbeddings(
-            model="text-embedding-ada-002",
-            base_url=openai_endpoint,
-            api_key=token_provider
-        )
+        Tries Azure OpenAI embeddings first (if AZURE_OPENAI_ENDPOINT is configured).
+        Falls back to text-only search if Azure credentials are not available.
+        """
+        # Check if Azure OpenAI endpoint is configured
+        openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+        
+        if openai_endpoint:
+            # Try Azure OpenAI embeddings
+            try:
+                token_provider = get_bearer_token_provider(
+                    DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
+                )
+
+                # Make sure using openai v1 endpoint format
+                openai_endpoint = openai_endpoint.rstrip("/")
+                if not openai_endpoint.endswith("/openai/v1"):
+                    openai_endpoint = f"{openai_endpoint}/openai/v1"
+                
+                self.embeddings = OpenAIEmbeddings(
+                    model="text-embedding-ada-002",
+                    base_url=openai_endpoint,
+                    api_key=token_provider
+                )
+                logger.info("✓ Using Azure OpenAI embeddings")
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ Azure OpenAI embeddings failed: {e}")
+                logger.info("   Search will use text matching instead.")
+                self.embeddings = None
+        else:
+            # No Azure endpoint configured
+            logger.info("ℹ️ AZURE_OPENAI_ENDPOINT not configured")
+            logger.info("   Search will use text matching instead of semantic search.")
+            logger.info("   To enable semantic search, set AZURE_OPENAI_ENDPOINT in .env")
+            self.embeddings = None
     
     def _init_local_vector_store(self):
         """Initialize local PostgreSQL vector store."""
+        # Skip if no embeddings available
+        if self.embeddings is None:
+            logger.warning("⚠️ Skipping vector store initialization (no embeddings available)")
+            logger.info("   Search will use text matching instead of semantic search")
+            self.vector_store = None
+            self.connection_pool = None
+            return
+            
         try:
             # Get local connection parameters
             pg_host = os.environ.get('LOCAL_PGHOST', 'localhost')
@@ -155,14 +185,13 @@ class EmailStorage:
             error_msg = str(e)
             # Simplify connection refused errors
             if "Connection refused" in error_msg or "connection failed" in error_msg:
-                logger.error(f"❌ Cannot connect to local PostgreSQL at {pg_host}:{pg_port}")
-                logger.error("   Database is not running. Start it with:")
-                logger.error("   → docker compose up -d")
-                logger.error("   Or check: docker ps | grep postgres")
+                logger.warning(f"⚠️ Cannot connect to local PostgreSQL at {pg_host}:{pg_port}")
+                logger.info("   Database is not running. Search will use text matching.")
+                logger.info("   To enable vector search, run: docker compose up -d")
             else:
-                logger.error(f"Local vector store error: {error_msg}")
+                logger.warning(f"Local vector store disabled: {error_msg}")
             self.vector_store = None
-            raise ConnectionError(f"Failed to connect to local PostgreSQL at {pg_host}:{pg_port}")
+            self.connection_pool = None
     
     def _init_cloud_vector_store(self):
         """Initialize Azure PostgreSQL vector store."""
@@ -491,32 +520,86 @@ class EmailStorage:
             raise
     
     async def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Search emails by semantic similarity."""
-        if not self.vector_store:
-            logger.warning("Vector search not available - vector store not initialized")
-            return []
+        """Search emails by semantic similarity or text matching.
         
-        try:
-            # Perform similarity search with sync vector store
-            results = self.vector_store.similarity_search_with_score(
-                query=query,
-                k=top_k
-            )
-            
-            # Format results
-            formatted_results = []
-            for doc, score in results:
-                result = {
-                    'score': float(score),
-                    'content': doc.page_content,
-                    'snippet': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content,
-                    **doc.metadata
-                }
-                formatted_results.append(result)
-            
-            logger.info(f"Found {len(formatted_results)} results for query: {query[:50]}...")
-            return formatted_results
-            
-        except Exception as e:
-            logger.error(f"Search failed: {e}")
-            return []
+        Uses vector search if available, falls back to simple text search otherwise.
+        """
+        # Try vector search first
+        if self.vector_store:
+            try:
+                # Perform similarity search with sync vector store
+                results = self.vector_store.similarity_search_with_score(
+                    query=query,
+                    k=top_k
+                )
+                
+                # Format results
+                formatted_results = []
+                for doc, score in results:
+                    result = {
+                        'score': float(score),
+                        'content': doc.page_content,
+                        'snippet': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content,
+                        **doc.metadata
+                    }
+                    formatted_results.append(result)
+                
+                logger.info(f"Found {len(formatted_results)} results for query: {query[:50]}...")
+                return formatted_results
+                
+            except Exception as e:
+                logger.error(f"Vector search failed: {e}")
+                logger.info("Falling back to text search...")
+        
+        # Fallback: Simple text search on stored files
+        return await self._text_search(query, top_k)
+    
+    async def _text_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Simple text-based search on stored email files.
+        
+        Used as fallback when vector search is unavailable.
+        """
+        results = []
+        query_lower = query.lower()
+        query_words = query_lower.split()
+        
+        if self.storage_type == "local" and self.blob_storage_path:
+            try:
+                # Search through local JSON files
+                import glob
+                email_files = glob.glob(os.path.join(self.blob_storage_path, "*.json"))
+                
+                for file_path in email_files:
+                    try:
+                        with open(file_path, 'r') as f:
+                            email_data = json.load(f)
+                        
+                        # Build searchable text
+                        text = f"{email_data.get('author', '')} {email_data.get('subject', '')} {email_data.get('body', '')}"
+                        text_lower = text.lower()
+                        
+                        # Score based on word matches
+                        score = sum(1 for word in query_words if word in text_lower)
+                        
+                        if score > 0:
+                            results.append({
+                                'score': score,
+                                'content': text[:500],
+                                'snippet': text[:200] + '...' if len(text) > 200 else text,
+                                'author': email_data.get('author', ''),
+                                'subject': email_data.get('subject', ''),
+                                'email_id': email_data.get('email_id', '')
+                            })
+                    except Exception as e:
+                        logger.warning(f"Error reading {file_path}: {e}")
+                
+                # Sort by score and return top_k
+                results.sort(key=lambda x: x['score'], reverse=True)
+                results = results[:top_k]
+                
+                logger.info(f"Text search found {len(results)} results for query: {query[:50]}...")
+                
+            except Exception as e:
+                logger.error(f"Text search failed: {e}")
+        
+        return results
